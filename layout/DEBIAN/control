@@ -1,0 +1,9 @@
+Package: com.appboxplugins.contacts
+Name: contacts plugin for AppBox
+Depends: firmware (>= 7.0), mobilesubstrate, preferenceloader, org.thebigboss.appbox
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: AppBox Plugin for contacts. Tap & hold SMS, Phone, Email, or FT Icon to activate.
+Maintainer: Jacob Caraballo
+Author: Jacob Caraballo
+Section: Tweaks
