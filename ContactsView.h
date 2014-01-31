@@ -9,11 +9,14 @@
 //the view will be pulled by appbox as a view, so always subclass UIView!
 @interface ContactsView : UIView <UITableViewDelegate, UITableViewDataSource, UIActionSheetDelegate, MFMailComposeViewControllerDelegate, MFMessageComposeViewControllerDelegate> //set whatever delegates you need (optional)
 
-@property (nonatomic, retain) NSDictionary *tweakSettings;
+@property (nonatomic, retain) NSMutableDictionary *tweakSettings;
 @property (nonatomic, assign) UIView *tweakView;
 
 + (id)sharedInstance;
 - (id)init;
+- (NSString *)name;
+- (NSString *)identifier;
+- (NSString *)appID;
 
 - (NSString *)tweakSettingsPath;
 - (id)settingsController;
@@ -24,11 +27,8 @@
 - (void)updateFrameForOrientationChange;
 - (CGRect)mainFrame;
 - (CGRect)mainFrame:(CGRect)frame WithPadding:(float)padding;
-- (NSString *)appID;
 - (void)reveal:(NSString *)appID;
 - (void)hide;
-- (NSString *)name;
-- (NSString *)identifier;
 
 
 @end

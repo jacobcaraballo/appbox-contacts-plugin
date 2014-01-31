@@ -1,10 +1,18 @@
+//plugin for appbox by Jacob Caraballo
+//please email admin@jacobcaraballo.com if you need help or for more plugin examples
+
 #import "ContactsView.h"
 #import "classes/ContactsSettingsController.h"
 
+//Custom Imports
+#import <AVFoundation/AVFoundation.h>
+#import "substrate.h"
 
-//helpful functions for you
+//helpful functions
 
-//gets the screen size at the current orientation, just in case your on an ipad
+static id lockScreenViewController() {
+	return MSHookIvar<id>([objc_getClass("SBLockScreenManager") sharedInstance], "_lockScreenViewController");
+}
 static CGSize screenSize() {
 	CGSize screenSize = [UIScreen mainScreen].bounds.size;
 	
@@ -15,16 +23,6 @@ static CGSize screenSize() {
 	
 	return screenSize;
 }
-static BOOL isLandscape() {
-	return ([[UIApplication sharedApplication] statusBarOrientation] != UIInterfaceOrientationPortrait);
-}
-static BOOL isIpad() {
-	return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad;
-}
-
-//Custom Imports
-#import <AVFoundation/AVFoundation.h>
-#import "substrate.h"
 
 //Custom
 #define contact_split_string @"CONTACTSPLIT||03221989||5951||JJC||03221989||CONTACTSPLIT"
@@ -38,8 +36,6 @@ static BOOL isIpad() {
 @property (nonatomic, assign) UITableViewCell *selectedCell;
 @property (nonatomic, retain) NSMutableArray *secondarySectionValues;
 @property (nonatomic, retain) NSMutableArray *primarySectionValues;
-@property (nonatomic, retain) UIViewController *viewControllerContainer;
-@property (nonatomic, retain) UIView *viewControllerContainerView;
 @end
 
 @implementation ContactsView
@@ -50,9 +46,8 @@ static BOOL isIpad() {
 @synthesize secondarySectionValues = _secondarySectionValues;
 @synthesize selectedCell = _selectedCell;
 @synthesize primarySectionValues = _primarySectionValues;
-@synthesize viewControllerContainer = _viewControllerContainer;
-@synthesize viewControllerContainerView = _viewControllerContainerView;
 
+//I use this to get a hold of your object, so don't delete it
 + (id)sharedInstance {
     // structure used to test whether the block has completed or not
     static dispatch_once_t p = 0;
@@ -79,15 +74,48 @@ static BOOL isIpad() {
 - (id)settingsController {
 	return [ContactsSettingsController class];
 }
+
 - (id)settings {
+	//create default settings
+	NSDictionary *defaultProperties = @{
+		@"kFavoritesEnabled"		: @YES,
+		@"kAllContactsEnabled"		: @YES,
+		@"kQuickComposeSMSEnabled"	: @YES,
+		@"kQuickComposeMailEnabled"	: @YES,
+		@"kBiteSMSEnabled"			: @NO
+	};
+
 	NSDictionary *settings = [self.tweakSettings objectForKey:[self identifier]]; //check if settings already exist
+	bool shouldUpdate = NO;
 	
 	//if you don't check if settings already exist, settings are not gonna update, as everytime the settings are returned it will return the primarily created settings	
-	if (!settings) { //if settings don't exist, create them
-		settings = @{
-			@"kFavoritesEnabled"	: @YES,
-			@"kAllContactsEnabled"	: @YES
-		};
+	if (!settings) { //if settings don't exist, apply default settings
+		settings = defaultProperties;
+		shouldUpdate = YES;
+	} else {
+		//iterate through default settings and check to see if there are any missing keys
+		//if so, apply the default value
+		for (NSString *key in defaultProperties.allKeys) {
+			if (![settings objectForKey:key]) {
+				shouldUpdate = YES;
+				
+				id obj = [defaultProperties objectForKey:key];
+				
+				if ([obj isKindOfClass:[NSNumber class]]) {
+					if (strcmp([obj objCType], @encode(BOOL)) == 0) {
+						BOOL objValue = [obj boolValue];
+						obj = [NSNumber numberWithBool:objValue];
+					}
+				}
+				
+				[settings setObject:[defaultProperties objectForKey:key] forKey:key];
+			}
+		}
+	}
+	
+	if (shouldUpdate) {
+		[self.tweakSettings setObject:settings forKey:[self identifier]];
+		[self writeTweakSettings];
 	}
 	
 	//return an autoreleased instance
@@ -158,42 +186,10 @@ static BOOL isIpad() {
 	return @"com.apple.mobilephone|com.apple.MobileSMS|com.apple.mobilemail|com.apple.facetime";
 }
 
-//this method is called when the user taps and holds the icon with your represented appID
-- (void)reveal:(NSString *)appID {
-	//show your view
-	//appID variable returns the application that was touched by the user (good to use if you have more than one appID for your plugin)
-	if ([appID isEqualToString:@"com.apple.mobilephone"] || [appID isEqualToString:@"com.apple.facetime"]) {
-		CGRect frame = self.frame;
-		frame.origin.y = 20;
-		
-		[UIView beginAnimations:nil context:nil];
-		[UIView setAnimationDuration:0.3];
-		self.frame = frame;
-		[UIView commitAnimations];
-	} else if ([appID isEqualToString:@"com.apple.MobileSMS"]) {
-		[self textNumber:@""];
-	} else if ([appID isEqualToString:@"com.apple.mobilemail"]) {
-		[self sendEmail:@""];
-	}
-}
-
-//this is what I call in my code to hide the view of the plugin
-//please don't call this on your own, to hide the plugin, call the -hidePlugin method below.
-- (void)hide {
-	//you have 0.5 seconds to hide this view before I do ;)
-	
-	CGRect frame = self.frame;
-	frame.origin.y = -frame.size.height;
-	
-	[UIView beginAnimations:nil context:nil];
-	[UIView setAnimationDuration:0.3];
-	self.frame = frame;
-	[UIView commitAnimations];
-}
-
 //use this to tell me that your plugin will hide and that i need to deactivate your plugin
 //you call -hidePlugin and when I'm done doing what i need to do, I call -hide above. that way, everything is kept in order and the user is happy.
 - (void)hidePlugin {
+	[self.tableView setContentOffset:CGPointZero animated:YES];
 	[self.tweakView hideActiveWidget];
 }
 
@@ -208,10 +204,65 @@ static BOOL isIpad() {
 	return @"jacobjahzielcaraballo031989-com.zogo.appbox.plugins.contacts-imsosupercool"; //i'm sure no one has this, so looks good :)
 }
 
+//this method is called when the user taps and holds the icon with your represented appID
+- (void)reveal:(NSString *)appID {
+	//show your view
+	//appID variable returns the application that was touched by the user (good to use if you have more than one appID for your plugin)
+	if ([appID isEqualToString:@"com.apple.mobilephone"] || [appID isEqualToString:@"com.apple.facetime"]) {
+		//create objects
+		[self createObjects];
+		
+		//animate frame in
+		CGRect frame = self.frame;
+		frame.origin.y = 20;
+		
+		[UIView beginAnimations:nil context:nil];
+		[UIView setAnimationDuration:0.3];
+		self.frame = frame;
+		[UIView commitAnimations];
+	} else if ([appID isEqualToString:@"com.apple.MobileSMS"]) {
+		if (![[[self settings] objectForKey:@"kQuickComposeSMSEnabled"] boolValue]) {
+			//i don't feel like rewriting the code in the first condition
+			//so i'm just calling this method again but with a property to match the first condition
+			[self reveal:@"com.apple.mobilephone"];
+			return;
+		}
+		
+		if ([[[self settings] objectForKey:@"kBiteSMSEnabled"] boolValue]) {
+			[self hidePlugin];
+			[[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"sms:"]];
+		} else
+			[self textNumber:@""];
+	} else if ([appID isEqualToString:@"com.apple.mobilemail"]) {
+		if (![[[self settings] objectForKey:@"kQuickComposeMailEnabled"] boolValue]) {
+			[self reveal:@"com.apple.mobilephone"];
+			return;
+		}
+		
+		[self sendEmail:@""];
+	}
+}
+
+//this is what I call in my code to hide the view of the plugin
+//please don't call this on your own, to hide the plugin, call the -hidePlugin method below.
+- (void)hide {
+	//you have 0.5 seconds to hide this view before I do ;)
+	
+	//animate frame out and destroy objects when done
+	CGRect frame = self.frame;
+	frame.origin.y = -frame.size.height;
+	
+	[UIView animateWithDuration:0.3 animations:^{
+		self.frame = frame;
+	} completion:^(BOOL finished){
+		[self destroyObjects];
+	}];
+}
+
 - (id)init {
 	if (self = [super init]) {		
 		//retrieve buddylock preferences
-		self.tweakSettings = [[[NSDictionary alloc] initWithContentsOfFile:[self tweakSettingsPath]] autorelease];
+		self.tweakSettings = [[[NSMutableDictionary alloc] initWithContentsOfFile:[self tweakSettingsPath]] autorelease];
 		self.autoresizingMask = (UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth);
 		
 		//set the view ---- always use -mainFrame to set and retrieve the frame, basically leave this alone
@@ -226,15 +277,31 @@ static BOOL isIpad() {
 		//if you want the color to match the users theme, set -matchUserTheme below to YES
 		self.backgroundColor = [UIColor clearColor];
 				
-		//custom methods
+		//custom methods can be put here
 		/*
 			this init method starts up with appbox, when the lock screen is loaded.
 		*/
-		[self setupArray];
-		[self setupCancelButton];
-		[self setupTableView];
 	}
 	return self;
+}
+
+- (void)createObjects {
+	[self setupArray];
+	[self setupCancelButton];
+	[self setupTableView];
+}
+- (void)destroyObjects {
+	for(id subview in self.subviews)
+		[subview removeFromSuperview];
+	
+	if (self.tableView) {
+		[self.tableView release];
+		self.tableView = nil;
+	}
+	
+	self.primarySectionValues = nil;
+	self.secondarySectionValues = nil;
+	self.selectedCell = nil;
 }
 
 //do whatever you want beyond this point
@@ -272,14 +339,11 @@ static BOOL isIpad() {
 	cancel.frame = CGRectMake(0, self.frame.size.height - 44, self.frame.size.width, 44);
 	cancel.backgroundColor = [UIColor blackColor];
 	[cancel setTitle:@"Cancel" forState:UIControlStateNormal];
-	[cancel addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+	[cancel addTarget:self action:@selector(hidePlugin) forControlEvents:UIControlEventTouchUpInside];
 	cancel.autoresizingMask = (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin);
 	[self addSubview:cancel];
 }
-- (void)cancel {
-	[self.tableView setContentOffset:CGPointZero animated:YES];
-	[self hidePlugin];
-}
+
 - (void)setupTableView {
 	CGRect frame = self.frame;
 	
@@ -490,40 +554,30 @@ static BOOL isIpad() {
 	CTCallListDisconnectAll();
 }
 - (void)textNumber:(NSString *)number {
-	[self cancel];
+	[self hidePlugin];
 	
 	if ([MFMessageComposeViewController canSendText]) {
-		self.viewControllerContainer = [[UIViewController alloc] init];
-		self.viewControllerContainerView = [[UIView alloc] initWithFrame:self.tweakView.frame];
-		[self.tweakView addSubview:self.viewControllerContainerView];
-		self.viewControllerContainer.view = self.viewControllerContainerView;
-
 		MFMessageComposeViewController *picker = [[MFMessageComposeViewController alloc] init];
 		picker.messageComposeDelegate = self;
 		
 		if (number && ![number isEqualToString:@""])
 			[picker setRecipients:[NSArray arrayWithObject:number]];
 		
-		[self.viewControllerContainer presentViewController:picker animated:YES completion:nil];
+		[lockScreenViewController() presentViewController:picker animated:YES completion:nil];
 		[picker release];
 	}
 }
 - (void)sendEmail:(NSString *)email {
-	[self cancel];
+	[self hidePlugin];
 	
 	if([MFMailComposeViewController canSendMail]) {
-		self.viewControllerContainer = [[UIViewController alloc] init];
-		self.viewControllerContainerView = [[UIView alloc] initWithFrame:self.tweakView.frame];
-		[self.tweakView addSubview:self.viewControllerContainerView];
-		self.viewControllerContainer.view = self.viewControllerContainerView;
-		
 		MFMailComposeViewController *picker = [[MFMailComposeViewController alloc] init];
 		picker.mailComposeDelegate = self;
 				
 		if (email && ![email isEqualToString:@""])
-			[picker setRecipients:[NSArray arrayWithObject:email]];
+			[picker setToRecipients:[NSArray arrayWithObject:email]];
 		
-		[self.viewControllerContainer presentViewController:picker animated:YES completion:nil];
+		[lockScreenViewController() presentViewController:picker animated:YES completion:nil];
 		[picker release];
 	}
 }
@@ -599,26 +653,10 @@ static BOOL isIpad() {
 	}
 }
 - (void)mailComposeController:(MFMailComposeViewController*)controller didFinishWithResult:(MFMailComposeResult)result error:(NSError*)error {
-	[controller dismissViewControllerAnimated:YES completion:^{
-		[self cancel];
-		[self.viewControllerContainerView removeFromSuperview];
-		[self.viewControllerContainerView release];
-		self.viewControllerContainerView = nil;
-		
-		[self.viewControllerContainer release];
-		self.viewControllerContainer = nil;
-	}];
+	[controller dismissViewControllerAnimated:YES completion:NULL];
 }
-- (void)messageComposeViewController:(MFMessageComposeViewController *)controller didFinishWithResult:(MessageComposeResult)result {
-	[controller dismissViewControllerAnimated:YES completion:^{
-		[self cancel];
-		[self.viewControllerContainerView removeFromSuperview];
-		[self.viewControllerContainerView release];
-		self.viewControllerContainerView = nil;
-		
-		[self.viewControllerContainer release];
-		self.viewControllerContainer = nil;		
-	}];
+- (void)messageComposeViewController:(MFMessageComposeViewController *)controller didFinishWithResult:(MessageComposeResult)result {	
+	[controller dismissViewControllerAnimated:YES completion:NULL];
 }
 //endmark
 //endmark
@@ -635,48 +673,3 @@ static BOOL isIpad() {
 }
 
 @end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// vim:ft=objc
